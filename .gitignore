@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Django
+*.sqlite3
+/staticfiles/
+/media/
+
+# Environment: never commit credentials
+.env
+*.env
+!.env.example
+
+# Editors / OS / agent working dirs
+.vscode/
+.idea/
+.DS_Store
+.a5c/

@@ -4,6 +4,7 @@ Single-file configuration, environment-driven (see .env.example). There is
 deliberately no Django Admin: Shipora's own pages cover administration.
 """
 
+from datetime import timedelta
 from pathlib import Path
 
 import environ
@@ -75,7 +76,18 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
 
 REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.AllowAny",),
+}
+
+# Login tokens (AUTH-002). JWT authentication also refuses deactivated accounts on
+# every request, and refreshing is refused for them too.
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
 # Email. consolemail:// prints messages to the server log; set an smtp:// URL

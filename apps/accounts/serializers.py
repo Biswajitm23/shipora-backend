@@ -76,3 +76,10 @@ class RegisterSerializer(serializers.Serializer):
 
     def to_representation(self, instance):
         return UserSerializer(instance).data
+
+
+class LoginSerializer(serializers.Serializer):
+    """The login form: both fields required. The credential checks are in LoginView."""
+
+    email = serializers.EmailField(error_messages=required("email address"))
+    password = serializers.CharField(trim_whitespace=False, error_messages=required("password"))

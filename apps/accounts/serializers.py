@@ -68,14 +68,36 @@ class RegisterSerializer(serializers.Serializer):
         return attrs
 
     def create(self, validated_data):
+        return self.create_account(validated_data, role=User.Role.CUSTOMER)
+
+    def create_account(self, validated_data, **fields):
         validated_data.pop("password_confirm")
         try:
-            return User.objects.create_user(role=User.Role.CUSTOMER, **validated_data)
+            return User.objects.create_user(**validated_data, **fields)
         except IntegrityError as exc:  # registered at the same moment by another request
             raise serializers.ValidationError({"email": [DUPLICATE_EMAIL]}) from exc
 
     def to_representation(self, instance):
         return UserSerializer(instance).data
+
+
+class AdminCreateUserSerializer(RegisterSerializer):
+    """ROLE-001: the Admin adds an account of any type. It is active and already
+    verified (the Admin created it), so it can log in straight away."""
+
+    role = serializers.ChoiceField(
+        choices=User.Role.choices,
+        error_messages={
+            "required": "Please choose an account type.",
+            "invalid_choice": "Please choose a valid account type.",
+        },
+    )
+
+    def create(self, validated_data):
+        return self.create_account(validated_data, email_verified=True)
+
+    def to_representation(self, instance):
+        return AdminUserSerializer(instance).data
 
 
 class AdminUserSerializer(serializers.ModelSerializer):

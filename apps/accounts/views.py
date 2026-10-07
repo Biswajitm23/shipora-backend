@@ -7,10 +7,21 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from .models import User
-from .serializers import LoginSerializer, RegisterSerializer, UserSerializer
-from .verification import send_verification_email, user_for_token
+from .serializers import (
+    LoginSerializer,
+    RegisterSerializer,
+    ResendVerificationSerializer,
+    UserSerializer,
+)
+from .verification import send_verification_email, send_verified_confirmation, user_for_token
 
 INVALID_LINK = "This verification link is invalid or has expired."
+VERIFIED = "Your email address has been verified."
+ALREADY_VERIFIED = "Your email address is already verified. You can log in."
+RESENT = (
+    "If an account with this email address still needs verification, "
+    "we have sent it a new verification link."
+)
 INVALID_LOGIN = "Incorrect email or password."
 INACTIVE = "This account has been deactivated. Please contact Shipora support."
 UNVERIFIED = (
@@ -40,10 +51,30 @@ class VerifyEmailView(APIView):
         user = user_for_token(str(request.data.get("token", "")))
         if user is None:
             return Response({"detail": INVALID_LINK}, status=status.HTTP_400_BAD_REQUEST)
-        if not user.email_verified:
-            user.email_verified = True
-            user.save(update_fields=["email_verified"])
-        return Response({"detail": "Your email address has been verified."})
+        if user.email_verified:
+            return Response({"detail": ALREADY_VERIFIED, "already_verified": True})
+        user.email_verified = True
+        user.save(update_fields=["email_verified"])
+        send_verified_confirmation(user)
+        return Response({"detail": VERIFIED, "already_verified": False})
+
+
+class ResendVerificationView(APIView):
+    """POST /api/auth/resend-verification/ — {"email"}: a new link for an unverified
+    account. The answer is the same whatever the email, so it reveals nothing."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        serializer = ResendVerificationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = User.objects.filter(
+            email__iexact=serializer.validated_data["email"], email_verified=False
+        ).first()
+        if user is not None:
+            send_verification_email(user)
+        return Response({"detail": RESENT})
 
 
 class LoginView(APIView):
@@ -72,7 +103,10 @@ class LoginView(APIView):
         if not user.is_active:
             return Response({"detail": INACTIVE}, status=status.HTTP_403_FORBIDDEN)
         if not user.email_verified:
-            return Response({"detail": UNVERIFIED}, status=status.HTTP_403_FORBIDDEN)
+            return Response(
+                {"detail": UNVERIFIED, "code": "email_not_verified"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         refresh = RefreshToken.for_user(user)
         update_last_login(None, user)

@@ -120,6 +120,10 @@ class AdminUserSerializer(serializers.ModelSerializer):
         read_only_fields = [f for f in fields if f != "is_active"]
 
 
+class ResendVerificationSerializer(serializers.Serializer):
+    email = serializers.EmailField(error_messages=required("email address"))
+
+
 class LoginSerializer(serializers.Serializer):
     """The login form: both fields required. The credential checks are in LoginView."""
 

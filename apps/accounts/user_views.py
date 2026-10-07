@@ -7,16 +7,19 @@ from rest_framework.exceptions import ValidationError
 
 from .models import User
 from .permissions import IsAdmin
-from .serializers import AdminUserSerializer
+from .serializers import AdminCreateUserSerializer, AdminUserSerializer
 
 SELF_DEACTIVATE = "You cannot deactivate your own account."
 
 
-class UserListView(generics.ListAPIView):
-    """GET /api/users/?search=&role=&status=active|inactive — every account, newest first."""
+class UserListView(generics.ListCreateAPIView):
+    """GET /api/users/?search=&role=&status=active|inactive — every account, newest first.
+    POST /api/users/ — the Admin adds an account of any type (ROLE-001)."""
 
-    serializer_class = AdminUserSerializer
     permission_classes = [IsAdmin]
+
+    def get_serializer_class(self):
+        return AdminCreateUserSerializer if self.request.method == "POST" else AdminUserSerializer
 
     def get_queryset(self):
         users = User.objects.order_by("-date_joined", "-id")

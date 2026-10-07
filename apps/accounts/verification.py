@@ -37,9 +37,16 @@ def verification_link(user):
     return f"{settings.FRONTEND_URL.rstrip('/')}/verify-email?{query}"
 
 
+def _send(user, subject, message, what):
+    """Send one email. A delivery failure is logged, not raised: the action it
+    reports has happened either way."""
+    try:
+        send_mail(subject, message, None, [user.email])
+    except Exception:
+        logger.exception("Could not send the %s email to user %s", what, user.pk)
+
+
 def send_verification_email(user):
-    """Email the verification link. A delivery failure is logged, not raised:
-    the account exists either way."""
     message = (
         f"Hello {user.first_name},\n\n"
         "Thank you for creating a Shipora account. Please verify your email address "
@@ -48,7 +55,14 @@ def send_verification_email(user):
         "If you did not create this account, you can ignore this email.\n\n"
         "The Shipora team"
     )
-    try:
-        send_mail("Verify your Shipora account", message, None, [user.email])
-    except Exception:
-        logger.exception("Could not send the verification email to user %s", user.pk)
+    _send(user, "Verify your Shipora account", message, "verification")
+
+
+def send_verified_confirmation(user):
+    message = (
+        f"Hello {user.first_name},\n\n"
+        "Your email address has been verified and your Shipora account is ready. "
+        f"You can now log in at {settings.FRONTEND_URL.rstrip('/')}/login\n\n"
+        "The Shipora team"
+    )
+    _send(user, "Your Shipora account is verified", message, "verification confirmation")

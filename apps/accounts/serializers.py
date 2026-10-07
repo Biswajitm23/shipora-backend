@@ -78,6 +78,26 @@ class RegisterSerializer(serializers.Serializer):
         return UserSerializer(instance).data
 
 
+class AdminUserSerializer(serializers.ModelSerializer):
+    """An account as the Admin sees it (USER-002). Only `is_active` can be changed."""
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "first_name",
+            "last_name",
+            "email",
+            "phone",
+            "role",
+            "is_active",
+            "email_verified",
+            "date_joined",
+            "last_login",
+        ]
+        read_only_fields = [f for f in fields if f != "is_active"]
+
+
 class LoginSerializer(serializers.Serializer):
     """The login form: both fields required. The credential checks are in LoginView."""
 

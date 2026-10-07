@@ -35,10 +35,12 @@ class RegisterSerializer(serializers.Serializer):
         write_only=True, trim_whitespace=False, error_messages=required("password")
     )
     password_confirm = serializers.CharField(
-        write_only=True, trim_whitespace=False, error_messages={
+        write_only=True,
+        trim_whitespace=False,
+        error_messages={
             "required": "Please confirm your password.",
             "blank": "Please confirm your password.",
-        }
+        },
     )
 
     def validate_email(self, value):

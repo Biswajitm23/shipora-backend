@@ -52,7 +52,9 @@ TEMPLATES = [
     },
 ]
 
-DATABASES = {"default": env.db("DATABASE_URL", default="postgres://shipora:shipora@localhost:5432/shipora")}
+DATABASES = {
+    "default": env.db("DATABASE_URL", default="postgres://shipora:postgres@localhost:5432/shipora")
+}
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

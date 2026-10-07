@@ -1,6 +1,7 @@
 """AUTH-001: customer registration and the emailed verification link."""
 
 import re
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -26,7 +27,9 @@ def payload(**overrides):
 
 
 def token_from(message):
-    return re.search(r"/verify-email\?token=(\S+)", message.body).group(1)
+    """The token as the verify page reads it: the emailed link's query, URL-decoded."""
+    link = re.search(r"\S+/verify-email\?\S+", message.body).group(0)
+    return parse_qs(urlsplit(link).query)["token"][0]
 
 
 @pytest.mark.django_db
@@ -69,7 +72,9 @@ class TestRegister:
         assert User.objects.count() == 1
 
     def test_passwords_must_match(self, api_client):
-        response = api_client.post(REGISTER, payload(password_confirm="Other-Pass-99"), format="json")
+        response = api_client.post(
+            REGISTER, payload(password_confirm="Other-Pass-99"), format="json"
+        )
 
         assert response.status_code == 400
         assert response.data["password_confirm"] == ["Passwords do not match."]
@@ -79,7 +84,12 @@ class TestRegister:
 
         assert response.status_code == 400
         assert set(response.data) == {
-            "first_name", "last_name", "email", "phone", "password", "password_confirm"
+            "first_name",
+            "last_name",
+            "email",
+            "phone",
+            "password",
+            "password_confirm",
         }
         assert response.data["first_name"] == ["Please enter your first name."]
 

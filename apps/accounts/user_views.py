@@ -6,7 +6,7 @@ from rest_framework import generics
 from rest_framework.exceptions import ValidationError
 
 from .models import User
-from .permissions import IsAdmin
+from .permissions import MANAGE_USERS, HasAccess
 from .serializers import AdminCreateUserSerializer, AdminUserSerializer
 
 SELF_DEACTIVATE = "You cannot deactivate your own account."
@@ -16,7 +16,7 @@ class UserListView(generics.ListCreateAPIView):
     """GET /api/users/?search=&role=&status=active|inactive — every account, newest first.
     POST /api/users/ — the Admin adds an account of any type (ROLE-001)."""
 
-    permission_classes = [IsAdmin]
+    permission_classes = [HasAccess(MANAGE_USERS)]
 
     def get_serializer_class(self):
         return AdminCreateUserSerializer if self.request.method == "POST" else AdminUserSerializer
@@ -43,7 +43,7 @@ class UserStatusView(generics.UpdateAPIView):
     """PATCH /api/users/<id>/ {is_active} — activate or deactivate an account."""
 
     serializer_class = AdminUserSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [HasAccess(MANAGE_USERS)]
     queryset = User.objects.all()
     http_method_names = ["patch", "options"]
 

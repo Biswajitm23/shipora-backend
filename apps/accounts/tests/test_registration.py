@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from apps.accounts.models import User
+from apps.accounts.permissions import ACCESS_RULES
 from apps.accounts.verification import make_token
 
 REGISTER = "/api/auth/register/"
@@ -52,6 +53,7 @@ class TestRegister:
             "phone": "+91 98765 43210",
             "role": "CUSTOMER",
             "email_verified": False,
+            "permissions": sorted(ACCESS_RULES[User.Role.CUSTOMER]),
         }
         assert len(mailoutbox) == 1
         assert mailoutbox[0].to == ["riya.sen@example.com"]

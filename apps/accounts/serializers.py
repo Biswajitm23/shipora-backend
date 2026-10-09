@@ -6,6 +6,7 @@ from django.db import IntegrityError
 from rest_framework import serializers
 
 from .models import User
+from .permissions import permissions_for
 
 DUPLICATE_EMAIL = "An account with this email address already exists."
 PHONE_CHARS = re.compile(r"^\+?[\d\s\-()]+$")
@@ -18,10 +19,26 @@ def required(what):
 
 
 class UserSerializer(serializers.ModelSerializer):
+    """The logged-in user, with the access rules of their account type (ROLE-002)."""
+
+    permissions = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "email", "first_name", "last_name", "phone", "role", "email_verified"]
+        fields = [
+            "id",
+            "email",
+            "first_name",
+            "last_name",
+            "phone",
+            "role",
+            "email_verified",
+            "permissions",
+        ]
         read_only_fields = fields
+
+    def get_permissions(self, user):
+        return sorted(permissions_for(user))
 
 
 class RegisterSerializer(serializers.Serializer):

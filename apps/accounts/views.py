@@ -22,6 +22,18 @@ RESENT = (
     "If an account with this email address still needs verification, "
     "we have sent it a new verification link."
 )
+REGISTERED = (
+    "Your account has been created. We have sent a verification link to your email address."
+)
+RESTARTED = (
+    "This email address was registered before but never verified. We have saved your "
+    "new details and sent a new verification link to your email address."
+)
+REGISTERED_NOT_SENT = (
+    "Your account has been saved, but we could not send the verification email. "
+    "Please ask for a new verification link in a few minutes."
+)
+NOT_SENT = "We could not send the verification email right now. Please try again in a few minutes."
 INVALID_LOGIN = "Incorrect email or password."
 INACTIVE = "This account has been deactivated. Please contact Shipora support."
 UNVERIFIED = (
@@ -31,14 +43,35 @@ UNVERIFIED = (
 
 
 class RegisterView(generics.CreateAPIView):
-    """POST /api/auth/register/ — anonymous sign-up; emails a verification link."""
+    """POST /api/auth/register/ — anonymous sign-up; emails a verification link.
+
+    The answer says what happened: `detail` (the message to show),
+    `verification_email_sent`, and `restarted` when the email belonged to an
+    account that was never verified (200 instead of 201).
+    """
 
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
     authentication_classes = []
 
-    def perform_create(self, serializer):
-        send_verification_email(serializer.save())
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        sent = send_verification_email(user)
+        if not sent:
+            detail = REGISTERED_NOT_SENT
+        else:
+            detail = RESTARTED if serializer.restarted else REGISTERED
+        return Response(
+            {
+                **serializer.data,
+                "detail": detail,
+                "verification_email_sent": sent,
+                "restarted": serializer.restarted,
+            },
+            status=status.HTTP_200_OK if serializer.restarted else status.HTTP_201_CREATED,
+        )
 
 
 class VerifyEmailView(APIView):
@@ -61,7 +94,8 @@ class VerifyEmailView(APIView):
 
 class ResendVerificationView(APIView):
     """POST /api/auth/resend-verification/ — {"email"}: a new link for an unverified
-    account. The answer is the same whatever the email, so it reveals nothing."""
+    account. The answer is the same whatever the email, so it reveals nothing;
+    only a link that could not be sent is reported (503, `email_not_sent`)."""
 
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -72,8 +106,11 @@ class ResendVerificationView(APIView):
         user = User.objects.filter(
             email__iexact=serializer.validated_data["email"], email_verified=False
         ).first()
-        if user is not None:
-            send_verification_email(user)
+        if user is not None and not send_verification_email(user):
+            return Response(
+                {"detail": NOT_SENT, "code": "email_not_sent"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         return Response({"detail": RESENT})
 
 

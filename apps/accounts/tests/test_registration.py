@@ -54,6 +54,12 @@ class TestRegister:
             "role": "CUSTOMER",
             "email_verified": False,
             "permissions": sorted(ACCESS_RULES[User.Role.CUSTOMER]),
+            "detail": (
+                "Your account has been created. We have sent a verification link "
+                "to your email address."
+            ),
+            "verification_email_sent": True,
+            "restarted": False,
         }
         assert len(mailoutbox) == 1
         assert mailoutbox[0].to == ["riya.sen@example.com"]
@@ -67,11 +73,13 @@ class TestRegister:
 
     def test_email_must_be_unique_ignoring_case(self, api_client, mailoutbox):
         api_client.post(REGISTER, payload(), format="json")
+        User.objects.update(email_verified=True)
         response = api_client.post(REGISTER, payload(email="RIYA.SEN@example.com"), format="json")
 
         assert response.status_code == 400
         assert response.data["email"] == ["An account with this email address already exists."]
         assert User.objects.count() == 1
+        assert len(mailoutbox) == 1  # only the first registration's link
 
     def test_passwords_must_match(self, api_client):
         response = api_client.post(

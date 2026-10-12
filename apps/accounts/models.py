@@ -45,6 +45,8 @@ class User(AbstractUser):
     phone = models.CharField(max_length=32, blank=True)
     role = models.CharField(max_length=16, choices=Role.choices, default=Role.CUSTOMER)
     email_verified = models.BooleanField(default=False)
+    # When the last verification email went out: limits how often one is sent.
+    verification_email_sent_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []

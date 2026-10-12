@@ -51,6 +51,7 @@ class RegisterSerializer(serializers.Serializer):
 
     restart_unverified = True
     restarted = False
+    unverified_account = None  # set by validate_email when a registration starts again
 
     first_name = serializers.CharField(max_length=150, error_messages=required("first name"))
     last_name = serializers.CharField(max_length=150, error_messages=required("last name"))
@@ -108,7 +109,7 @@ class RegisterSerializer(serializers.Serializer):
         return attrs
 
     def create(self, validated_data):
-        user = getattr(self, "unverified_account", None)
+        user = self.unverified_account
         if user is None:
             return self.create_account(validated_data, role=User.Role.CUSTOMER)
         for field in ("first_name", "last_name", "phone"):

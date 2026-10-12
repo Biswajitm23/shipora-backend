@@ -13,7 +13,16 @@ from .serializers import (
     ResendVerificationSerializer,
     UserSerializer,
 )
-from .verification import send_verification_email, send_verified_confirmation, user_for_token
+from .verification import (
+    CAPTURED,
+    FAILED,
+    SENT,
+    capturing_locally,
+    seconds_until_resend,
+    send_verification_email,
+    send_verified_confirmation,
+    user_for_token,
+)
 
 INVALID_LINK = "This verification link is invalid or has expired."
 VERIFIED = "Your email address has been verified."
@@ -22,18 +31,30 @@ RESENT = (
     "If an account with this email address still needs verification, "
     "we have sent it a new verification link."
 )
-REGISTERED = (
-    "Your account has been created. We have sent a verification link to your email address."
-)
+CREATED = "Your account has been created."
 RESTARTED = (
-    "This email address was registered before but never verified. We have saved your "
-    "new details and sent a new verification link to your email address."
+    "This email address was registered before but never verified. We have saved your new details."
 )
-REGISTERED_NOT_SENT = (
-    "Your account has been saved, but we could not send the verification email. "
+LINK_SENT = "We have sent a verification link to your email address."
+# Local development: the email never leaves this machine, and the page says so.
+LINK_CAPTURED = (
+    "This is a local test setup, so no email goes to a real inbox: "
+    "the verification email was saved in the local test mailbox."
+)
+LINK_NOT_SENT = (
+    "We could not send the verification email. "
     "Please ask for a new verification link in a few minutes."
 )
+RESENT_CAPTURED = (
+    "This is a local test setup, so no email goes to a real inbox. If an account with "
+    "this email address still needs verification, its new verification link was saved "
+    "in the local test mailbox."
+)
 NOT_SENT = "We could not send the verification email right now. Please try again in a few minutes."
+TOO_SOON = (
+    "A verification email was sent to this address a moment ago. "
+    "Please wait {seconds} seconds before asking for another one."
+)
 INVALID_LOGIN = "Incorrect email or password."
 INACTIVE = "This account has been deactivated. Please contact Shipora support."
 UNVERIFIED = (
@@ -42,12 +63,23 @@ UNVERIFIED = (
 )
 
 
+def too_soon(seconds):
+    """429: this account was sent a verification email a moment ago."""
+    return Response(
+        {"detail": TOO_SOON.format(seconds=seconds), "code": "resend_too_soon"},
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+        headers={"Retry-After": str(seconds)},
+    )
+
+
 class RegisterView(generics.CreateAPIView):
     """POST /api/auth/register/ — anonymous sign-up; emails a verification link.
 
-    The answer says what happened: `detail` (the message to show),
-    `verification_email_sent`, and `restarted` when the email belonged to an
-    account that was never verified (200 instead of 201).
+    The answer says what happened: `detail` (the message to show), `email_delivery`
+    ("sent", "captured" in local development, or "failed"),
+    `verification_email_sent` (true only for "sent"), and `restarted` when the
+    email belonged to an account that was never verified (200 instead of 201).
+    Starting again waits for the resend cooldown (429) like any new link.
     """
 
     serializer_class = RegisterSerializer
@@ -57,17 +89,19 @@ class RegisterView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        if serializer.unverified_account is not None:
+            wait = seconds_until_resend(serializer.unverified_account)
+            if wait:
+                return too_soon(wait)
         user = serializer.save()
-        sent = send_verification_email(user)
-        if not sent:
-            detail = REGISTERED_NOT_SENT
-        else:
-            detail = RESTARTED if serializer.restarted else REGISTERED
+        outcome = send_verification_email(user)
+        link = {SENT: LINK_SENT, CAPTURED: LINK_CAPTURED, FAILED: LINK_NOT_SENT}[outcome]
         return Response(
             {
                 **serializer.data,
-                "detail": detail,
-                "verification_email_sent": sent,
+                "detail": f"{RESTARTED if serializer.restarted else CREATED} {link}",
+                "email_delivery": outcome,
+                "verification_email_sent": outcome == SENT,
                 "restarted": serializer.restarted,
             },
             status=status.HTTP_200_OK if serializer.restarted else status.HTTP_201_CREATED,
@@ -94,8 +128,9 @@ class VerifyEmailView(APIView):
 
 class ResendVerificationView(APIView):
     """POST /api/auth/resend-verification/ — {"email"}: a new link for an unverified
-    account. The answer is the same whatever the email, so it reveals nothing;
-    only a link that could not be sent is reported (503, `email_not_sent`)."""
+    account. The answer is the same whatever the email, so it reveals nothing; only
+    an account that has to wait (429, `resend_too_soon`) or whose link could not be
+    sent (503, `email_not_sent`) is told so."""
 
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -106,11 +141,17 @@ class ResendVerificationView(APIView):
         user = User.objects.filter(
             email__iexact=serializer.validated_data["email"], email_verified=False
         ).first()
-        if user is not None and not send_verification_email(user):
-            return Response(
-                {"detail": NOT_SENT, "code": "email_not_sent"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+        if user is not None:
+            wait = seconds_until_resend(user)
+            if wait:
+                return too_soon(wait)
+            if send_verification_email(user) == FAILED:
+                return Response(
+                    {"detail": NOT_SENT, "code": "email_not_sent"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+        if capturing_locally():
+            return Response({"detail": RESENT_CAPTURED, "email_delivery": CAPTURED})
         return Response({"detail": RESENT})
 
 

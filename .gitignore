@@ -13,6 +13,7 @@ htmlcov/
 *.sqlite3
 /staticfiles/
 /media/
+/sent_emails/
 
 # Environment: never commit credentials
 .env

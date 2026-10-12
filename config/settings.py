@@ -92,9 +92,14 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
-# Email. consolemail:// prints messages to the server log; set an smtp:// URL
-# (smtp://user:password@host:587/?tls=True) for real delivery.
-vars().update(env.email_url("EMAIL_URL", default="consolemail://"))
+# Email. filemail:// (the default) keeps every message as a file in sent_emails/,
+# the local test mailbox; consolemail:// prints it to the server log. Neither
+# delivers anything: set an smtp:// URL (smtp://user:password@host:587/?tls=True)
+# for real delivery.
+_email = env.email_url("EMAIL_URL", default="filemail://")
+if _email["EMAIL_BACKEND"].endswith("filebased.EmailBackend") and not _email["EMAIL_FILE_PATH"]:
+    _email["EMAIL_FILE_PATH"] = BASE_DIR / "sent_emails"
+vars().update(_email)
 # Give up on a mail server that does not answer instead of holding the request.
 EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=10)
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="Shipora <no-reply@shipora.local>")
@@ -104,3 +109,6 @@ FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")
 
 # How long an email verification link stays valid, in seconds (default 3 days).
 EMAIL_VERIFICATION_MAX_AGE = env.int("EMAIL_VERIFICATION_MAX_AGE", default=3 * 24 * 60 * 60)
+
+# Seconds an account waits before it can be sent another verification email.
+EMAIL_VERIFICATION_RESEND_COOLDOWN = env.int("EMAIL_VERIFICATION_RESEND_COOLDOWN", default=60)

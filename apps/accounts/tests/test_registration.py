@@ -58,6 +58,7 @@ class TestRegister:
                 "Your account has been created. We have sent a verification link "
                 "to your email address."
             ),
+            "email_delivery": "sent",
             "verification_email_sent": True,
             "restarted": False,
         }

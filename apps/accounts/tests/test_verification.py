@@ -1,10 +1,13 @@
 """AUTH-003: verification confirmation, already-verified links and new links."""
 
 import re
+from datetime import timedelta
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from django.core import signing
+from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.accounts.verification import SALT, make_token
@@ -263,3 +266,105 @@ def test_link_sent_before_the_fix_still_verifies(api_client, customer):
     assert response.status_code == 200
     customer.refresh_from_db()
     assert customer.email_verified is True
+
+
+@pytest.mark.django_db
+class TestResendCooldown:
+    def test_second_request_has_to_wait(self, api_client, customer, mailoutbox):
+        first = api_client.post(RESEND, {"email": customer.email}, format="json")
+        second = api_client.post(RESEND, {"email": customer.email}, format="json")
+
+        assert first.status_code == 200
+        assert second.status_code == 429
+        assert second.data["code"] == "resend_too_soon"
+        assert "Please wait" in second.data["detail"]
+        assert 0 < int(second["Retry-After"]) <= 60
+        assert len(mailoutbox) == 1
+
+    def test_a_new_link_can_be_sent_after_the_wait(self, api_client, customer, mailoutbox):
+        api_client.post(RESEND, {"email": customer.email}, format="json")
+        User.objects.filter(pk=customer.pk).update(
+            verification_email_sent_at=timezone.now() - timedelta(seconds=61)
+        )
+
+        response = api_client.post(RESEND, {"email": customer.email}, format="json")
+
+        assert response.status_code == 200
+        assert len(mailoutbox) == 2
+        verify = api_client.post(VERIFY, {"token": token_from(mailoutbox[1])}, format="json")
+        assert verify.status_code == 200
+
+    def test_registering_again_has_to_wait_too(self, api_client, mailoutbox):
+        first = api_client.post(REGISTER, registration(), format="json")
+        again = api_client.post(
+            REGISTER,
+            registration(password="An0ther-Harbour-55", password_confirm="An0ther-Harbour-55"),
+            format="json",
+        )
+
+        assert first.status_code == 201
+        assert again.status_code == 429
+        assert again.data["code"] == "resend_too_soon"
+        user = User.objects.get()
+        assert user.check_password(NEW_PASSWORD)  # nothing was changed
+        assert len(mailoutbox) == 1
+        # The link already sent still works.
+        verify = api_client.post(VERIFY, {"token": token_from(mailoutbox[0])}, format="json")
+        assert verify.status_code == 200
+
+    def test_a_failed_send_does_not_start_the_wait(self, api_client, customer, mail_server_down):
+        api_client.post(RESEND, {"email": customer.email}, format="json")
+
+        customer.refresh_from_db()
+        assert customer.verification_email_sent_at is None
+
+
+@pytest.fixture
+def local_mailbox(settings, tmp_path):
+    """Local development: emails are kept as files, never delivered."""
+    settings.DEBUG = True
+    settings.EMAIL_BACKEND = "django.core.mail.backends.filebased.EmailBackend"
+    settings.EMAIL_FILE_PATH = tmp_path
+    return tmp_path
+
+
+def link_token(text):
+    link = re.search(r"\S+/verify-email\?\S+", text).group(0)
+    return parse_qs(urlsplit(link).query)["token"][0]
+
+
+@pytest.mark.django_db
+class TestLocalMailbox:
+    def test_registration_says_the_email_was_only_saved_locally(self, api_client, local_mailbox):
+        response = api_client.post(REGISTER, registration(), format="json")
+
+        assert response.status_code == 201
+        assert response.data["email_delivery"] == "captured"
+        assert response.data["verification_email_sent"] is False
+        assert "local test mailbox" in response.data["detail"]
+        (saved,) = Path(local_mailbox).iterdir()
+        text = saved.read_text()
+        assert "To: customer@example.com" in text
+        verify = api_client.post(VERIFY, {"token": link_token(text)}, format="json")
+        assert verify.status_code == 200
+        assert User.objects.get().email_verified is True
+
+    @pytest.mark.parametrize("email", ["customer@example.com", "nobody@example.com"])
+    def test_resend_says_so_whatever_the_email(self, api_client, customer, local_mailbox, email):
+        response = api_client.post(RESEND, {"email": email}, format="json")
+
+        assert response.status_code == 200
+        assert response.data["email_delivery"] == "captured"
+        assert "local test mailbox" in response.data["detail"]
+        saved = list(Path(local_mailbox).iterdir())
+        assert len(saved) == (1 if email == customer.email else 0)
+
+    def test_a_local_mailbox_does_not_count_outside_development(
+        self, api_client, local_mailbox, settings
+    ):
+        settings.DEBUG = False
+
+        response = api_client.post(REGISTER, registration(), format="json")
+
+        assert response.data["email_delivery"] == "failed"
+        assert list(Path(local_mailbox).iterdir()) == []

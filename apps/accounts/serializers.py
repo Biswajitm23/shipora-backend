@@ -42,7 +42,15 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(serializers.Serializer):
-    """Self-registration. Always creates an unverified CUSTOMER; any role sent is ignored."""
+    """Self-registration. Always creates an unverified CUSTOMER; any role sent is ignored.
+
+    Registering again with the email of an account that was never verified starts
+    that registration again (`restarted`): the account takes the new details instead
+    of blocking its own email address. Nobody could log in to it yet.
+    """
+
+    restart_unverified = True
+    restarted = False
 
     first_name = serializers.CharField(max_length=150, error_messages=required("first name"))
     last_name = serializers.CharField(max_length=150, error_messages=required("last name"))
@@ -62,9 +70,24 @@ class RegisterSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         value = value.lower()
-        if User.objects.filter(email__iexact=value).exists():
+        existing = User.objects.filter(email__iexact=value).first()
+        if existing is None:
+            return value
+        if not (self.restart_unverified and self.can_restart(existing)):
             raise serializers.ValidationError(DUPLICATE_EMAIL)
-        return value
+        self.unverified_account = existing
+        return existing.email
+
+    @staticmethod
+    def can_restart(user):
+        """A self-registered account that was never verified, so never used."""
+        return (
+            not user.email_verified
+            and user.is_active
+            and user.role == User.Role.CUSTOMER
+            and user.last_login is None
+            and not (user.is_staff or user.is_superuser)
+        )
 
     def validate_phone(self, value):
         digits = re.sub(r"\D", "", value)
@@ -85,7 +108,16 @@ class RegisterSerializer(serializers.Serializer):
         return attrs
 
     def create(self, validated_data):
-        return self.create_account(validated_data, role=User.Role.CUSTOMER)
+        user = getattr(self, "unverified_account", None)
+        if user is None:
+            return self.create_account(validated_data, role=User.Role.CUSTOMER)
+        for field in ("first_name", "last_name", "phone"):
+            setattr(user, field, validated_data[field])
+        # A new password also ends the verification links sent before.
+        user.set_password(validated_data["password"])
+        user.save(update_fields=["first_name", "last_name", "phone", "password"])
+        self.restarted = True
+        return user
 
     def create_account(self, validated_data, **fields):
         validated_data.pop("password_confirm")
@@ -101,6 +133,8 @@ class RegisterSerializer(serializers.Serializer):
 class AdminCreateUserSerializer(RegisterSerializer):
     """ROLE-001: the Admin adds an account of any type. It is active and already
     verified (the Admin created it), so it can log in straight away."""
+
+    restart_unverified = False
 
     role = serializers.ChoiceField(
         choices=User.Role.choices,

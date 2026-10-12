@@ -95,6 +95,8 @@ SIMPLE_JWT = {
 # Email. consolemail:// prints messages to the server log; set an smtp:// URL
 # (smtp://user:password@host:587/?tls=True) for real delivery.
 vars().update(env.email_url("EMAIL_URL", default="consolemail://"))
+# Give up on a mail server that does not answer instead of holding the request.
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=10)
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="Shipora <no-reply@shipora.local>")
 
 # The website: links in emails point here.
